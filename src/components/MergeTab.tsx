@@ -187,14 +187,16 @@ export function MergeTab() {
         ? Object.keys(memberDataWithRenamedColumn[0])
         : []
 
+      console.log('원본 컬럼들:', originalColumns)
+
       // 연도 컬럼 패턴 (4자리 숫자)
       const isYearColumn = (col: string) => /^\d{4}$/.test(col.trim())
 
-      // 면허번호와 이름 컬럼을 찾아서 재배열
+      // 면허번호와 이름 컬럼을 찾기
       const licenseNumCol = originalColumns.find(col => col === '면허번호' || col === '면허(자격)번호')
       const nameCol = '이름'
 
-      // 다른 컬럼들 (연도 컬럼, 면허번호, 이름, 면허취득연도, 면허신고연도 제외)
+      // 기타 컬럼들 (연도 컬럼, 면허번호, 이름, 면허취득연도, 면허신고연도 제외)
       const otherCols = originalColumns.filter(col =>
         col !== licenseNumCol &&
         col !== nameCol &&
@@ -203,25 +205,48 @@ export function MergeTab() {
         col !== '면허신고연도'
       )
 
-      // 재배열된 컬럼 순서: 면허번호 - 이름 - 나머지 - 면허취득연도
-      const baseColumns = licenseNumCol && nameCol
-        ? [licenseNumCol, nameCol, ...otherCols, '면허취득연도']
-        : originalColumns.filter(col => !isYearColumn(col) && col !== '면허신고연도')
+      console.log('기타 컬럼들:', otherCols)
+      console.log('연도 컬럼들:', sortedYears)
 
-      // 각 회원 데이터 행에 연도별 빈 컬럼 추가
+      // 명시적으로 컬럼 순서 구성: 면허번호 → 이름 → 기타컬럼들 → 면허취득연도 → 2014~2025 → 면허신고연도
+      const columnOrder: string[] = []
+
+      // 1. 면허번호
+      if (licenseNumCol) columnOrder.push(licenseNumCol)
+
+      // 2. 이름
+      if (nameCol) columnOrder.push(nameCol)
+
+      // 3. 기타 컬럼들
+      columnOrder.push(...otherCols)
+
+      // 4. 면허취득연도
+      columnOrder.push('면허취득연도')
+
+      // 5. 연도 컬럼들 (2014~2025)
+      columnOrder.push(...sortedYears)
+
+      // 6. 면허신고연도
+      columnOrder.push('면허신고연도')
+
+      console.log('최종 컬럼 순서:', columnOrder)
+
+      // 각 회원 데이터 행에 연도별 빈 컬럼 및 면허신고연도 추가
       const memberDataWithYearColumns = memberDataWithRenamedColumn.map((row) => {
         const newRow = { ...row }
+
+        // 연도 컬럼 추가
         sortedYears.forEach((year) => {
           newRow[year] = '' // 빈 값으로 초기화
         })
-        newRow['면허신고연도'] = '' // 면허신고연도 컬럼 추가
+
+        // 면허신고연도 컬럼 추가
+        newRow['면허신고연도'] = ''
+
         return newRow
       })
 
-      // 컬럼 순서 지정: 기본 컬럼들 + 연도 컬럼들 + 면허신고연도
-      const columnOrder = [...baseColumns, ...sortedYears, '면허신고연도']
-
-      // 수정된 회원 데이터를 시트로 변환 (컬럼 순서 지정)
+      // 수정된 회원 데이터를 시트로 변환 (컬럼 순서 명시적 지정)
       const updatedMemberSheet = XLSX.utils.json_to_sheet(memberDataWithYearColumns, { header: columnOrder })
 
       // 9. 새로운 통합 워크북 생성

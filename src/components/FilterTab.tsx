@@ -42,9 +42,38 @@ export function FilterTab() {
       // 연도 컬럼 찾기 (4자리 숫자로 된 컬럼명)
       const yearColumns = columns.filter(col => /^\d{4}$/.test(col.trim()))
 
-      // 데이터 처리
+      // 컬럼 순서 재구성을 위한 정보 수집
+      const isYearCol = (col: string) => /^\d{4}$/.test(col.trim())
+      const licenseNumCol = columns.find(col => col === '면허번호' || col === '면허(자격)번호')
+      const nameCol = columns.find(col => col === '이름' || col === '성명')
+
+      // 연도 컬럼들 정렬
+      const sortedYearCols = yearColumns.sort()
+
+      // 기타 컬럼들
+      const otherCols = columns.filter(col =>
+        col !== licenseNumCol &&
+        col !== nameCol &&
+        !isYearCol(col) &&
+        col !== '면허취득연도' &&
+        col !== '면허신고연도'
+      )
+
+      // 올바른 컬럼 순서
+      const correctOrder: string[] = []
+      if (licenseNumCol) correctOrder.push(licenseNumCol)
+      if (nameCol) correctOrder.push(nameCol)
+      correctOrder.push(...otherCols)
+      if (columns.includes('면허취득연도')) correctOrder.push('면허취득연도')
+      correctOrder.push(...sortedYearCols)
+      if (columns.includes('면허신고연도')) correctOrder.push('면허신고연도')
+
+      console.log('필터링 처리 시 컬럼 순서:', correctOrder)
+
+      // 데이터 처리 및 컬럼 순서 재정렬
       const processed = jsonData.map(row => {
-        const newRow = { ...row }
+        // 먼저 연도 컬럼 값 수정
+        const modifiedRow = { ...row }
 
         if (licenseAcquisitionYearCol) {
           const acquiredYear = parseInt(row[licenseAcquisitionYearCol]?.toString().trim() || '0')
@@ -55,17 +84,23 @@ export function FilterTab() {
 
               if (yearColValue < acquiredYear) {
                 // 연도별 컬럼 수치 < 면허취득연도 → 공백
-                newRow[yearCol] = ''
+                modifiedRow[yearCol] = ''
               } else if (yearColValue === acquiredYear) {
                 // 연도별 컬럼 수치 = 면허취득연도 → "면제"
-                newRow[yearCol] = '면제'
+                modifiedRow[yearCol] = '면제'
               }
               // 연도별 컬럼 수치 > 면허취득연도 → 기존 값 유지
             })
           }
         }
 
-        return newRow
+        // 올바른 순서로 새 객체 생성
+        const reorderedRow: Record<string, any> = {}
+        correctOrder.forEach(col => {
+          reorderedRow[col] = modifiedRow[col]
+        })
+
+        return reorderedRow
       })
 
       setProcessedData(processed)
@@ -79,7 +114,43 @@ export function FilterTab() {
   const downloadExcel = () => {
     if (processedData.length === 0) return
 
-    const worksheet = XLSX.utils.json_to_sheet(processedData)
+    // 컬럼 순서 구성
+    const allColumns = Object.keys(processedData[0])
+
+    // 연도 컬럼 패턴 (4자리 숫자)
+    const isYearColumn = (col: string) => /^\d{4}$/.test(col.trim())
+
+    // 면허번호, 이름 찾기
+    const licenseNumCol = allColumns.find(col => col === '면허번호' || col === '면허(자격)번호')
+    const nameCol = allColumns.find(col => col === '이름' || col === '성명')
+
+    // 연도 컬럼들 추출 및 정렬
+    const yearColumns = allColumns.filter(col => isYearColumn(col)).sort()
+
+    // 기타 컬럼들 (면허번호, 이름, 연도 컬럼, 면허취득연도, 면허신고연도 제외)
+    const otherCols = allColumns.filter(col =>
+      col !== licenseNumCol &&
+      col !== nameCol &&
+      !isYearColumn(col) &&
+      col !== '면허취득연도' &&
+      col !== '면허신고연도'
+    )
+
+    // 명시적 컬럼 순서: 면허번호 → 이름 → 기타컬럼들 → 면허취득연도 → 2014~2025 → 면허신고연도
+    const columnOrder: string[] = []
+
+    if (licenseNumCol) columnOrder.push(licenseNumCol)
+    if (nameCol) columnOrder.push(nameCol)
+    columnOrder.push(...otherCols)
+    if (allColumns.includes('면허취득연도')) columnOrder.push('면허취득연도')
+    columnOrder.push(...yearColumns)
+    if (allColumns.includes('면허신고연도')) columnOrder.push('면허신고연도')
+
+    console.log('필터링 탭 최종 컬럼 순서:', columnOrder)
+
+    const worksheet = XLSX.utils.json_to_sheet(processedData, {
+      header: columnOrder
+    })
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, '필터링_처리결과')
     XLSX.writeFile(workbook, '필터링_처리결과.xlsx', {
