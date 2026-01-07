@@ -24,34 +24,88 @@ export function FilterTab() {
     try {
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data)
-      const sheetName = workbook.SheetNames[0]
-      const worksheet = workbook.Sheets[sheetName]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[]
 
-      if (jsonData.length === 0) {
+      // 1. 회원 데이터 시트 읽기 (첫 번째 시트)
+      const memberSheetName = workbook.SheetNames[0]
+      const memberSheet = workbook.Sheets[memberSheetName]
+      const memberData = XLSX.utils.sheet_to_json(memberSheet) as Record<string, any>[]
+
+      if (memberData.length === 0) {
         setIsProcessing(false)
         return
       }
 
-      // 컬럼명 찾기
-      const columns = Object.keys(jsonData[0])
-      const licenseAcquisitionYearCol = columns.find(col =>
+      // 2. 연도별 시트 읽기 (면허번호 -> 결과 매핑)
+      const yearSheetDataMap: { [year: string]: Map<string, string> } = {}
+
+      // 회원 데이터의 연도 컬럼 찾기
+      const memberColumns = Object.keys(memberData[0])
+      const yearColumns = memberColumns.filter(col => /^\d{4}$/.test(col.trim())).sort()
+
+      // 각 연도별 시트 읽기
+      for (const sheetName of workbook.SheetNames.slice(1)) {
+        // 마지막 시트(면허신고 데이터)가 아닌 경우
+        if (sheetName !== '면허신고 데이터' && /^\d{4}$/.test(sheetName.trim())) {
+          const sheet = workbook.Sheets[sheetName]
+          const sheetData = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[]
+
+          const resultMap = new Map<string, string>()
+          sheetData.forEach((row: any) => {
+            const licenseNum = (row['면허번호'] || '').toString().trim()
+            const result = (row['결과'] || '').toString().trim()
+            if (licenseNum && result) {
+              resultMap.set(licenseNum, result)
+            }
+          })
+
+          yearSheetDataMap[sheetName] = resultMap
+        }
+      }
+
+      // 3. 면허신고 데이터 시트 읽기 (면허번호 -> 최대 연도 매핑)
+      const licenseReportMap = new Map<string, number>()
+      const licenseSheetName = '면허신고 데이터'
+
+      if (workbook.SheetNames.includes(licenseSheetName)) {
+        const licenseSheet = workbook.Sheets[licenseSheetName]
+        const licenseData = XLSX.utils.sheet_to_json(licenseSheet) as Record<string, any>[]
+
+        // 면허번호별로 최대 연도 찾기
+        licenseData.forEach((row: any) => {
+          // B열: 면허번호, C열: 면허신고연도
+          const licenseNumCol = Object.keys(row).find(col =>
+            col.includes('면허번호') || col === '면허번호'
+          )
+          const yearCol = Object.keys(row).find(col =>
+            col.includes('신고연도') || col.includes('연도')
+          )
+
+          if (licenseNumCol && yearCol) {
+            const licenseNum = (row[licenseNumCol] || '').toString().trim()
+            const year = parseInt((row[yearCol] || '').toString().trim())
+
+            if (licenseNum && !isNaN(year)) {
+              const currentMax = licenseReportMap.get(licenseNum) || 0
+              if (year > currentMax) {
+                licenseReportMap.set(licenseNum, year)
+              }
+            }
+          }
+        })
+      }
+
+      // 4. 컬럼명 찾기
+      const licenseAcquisitionYearCol = memberColumns.find(col =>
         col.includes('면허취득연도')
       )
 
-      // 연도 컬럼 찾기 (4자리 숫자로 된 컬럼명)
-      const yearColumns = columns.filter(col => /^\d{4}$/.test(col.trim()))
-
       // 컬럼 순서 재구성을 위한 정보 수집
       const isYearCol = (col: string) => /^\d{4}$/.test(col.trim())
-      const licenseNumCol = columns.find(col => col === '면허번호' || col === '면허(자격)번호')
-      const nameCol = columns.find(col => col === '이름' || col === '성명')
-
-      // 연도 컬럼들 정렬
-      const sortedYearCols = yearColumns.sort()
+      const licenseNumCol = memberColumns.find(col => col === '면허번호' || col === '면허(자격)번호')
+      const nameCol = memberColumns.find(col => col === '이름' || col === '성명')
 
       // 기타 컬럼들
-      const otherCols = columns.filter(col =>
+      const otherCols = memberColumns.filter(col =>
         col !== licenseNumCol &&
         col !== nameCol &&
         !isYearCol(col) &&
@@ -64,33 +118,60 @@ export function FilterTab() {
       if (licenseNumCol) correctOrder.push(licenseNumCol)
       if (nameCol) correctOrder.push(nameCol)
       correctOrder.push(...otherCols)
-      if (columns.includes('면허취득연도')) correctOrder.push('면허취득연도')
-      correctOrder.push(...sortedYearCols)
-      if (columns.includes('면허신고연도')) correctOrder.push('면허신고연도')
+      if (memberColumns.includes('면허취득연도')) correctOrder.push('면허취득연도')
+      correctOrder.push(...yearColumns)
+      if (memberColumns.includes('면허신고연도')) correctOrder.push('면허신고연도')
 
       console.log('필터링 처리 시 컬럼 순서:', correctOrder)
 
-      // 데이터 처리 및 컬럼 순서 재정렬
-      const processed = jsonData.map(row => {
-        // 먼저 연도 컬럼 값 수정
+      // 5. 현재 연도
+      const currentYear = new Date().getFullYear()
+
+      // 6. 데이터 처리
+      const processed = memberData.map(row => {
         const modifiedRow = { ...row }
+        const licenseNum = licenseNumCol ? (row[licenseNumCol] || '').toString().trim() : ''
 
-        if (licenseAcquisitionYearCol) {
-          const acquiredYear = parseInt(row[licenseAcquisitionYearCol]?.toString().trim() || '0')
+        // 면허취득연도 추출
+        const acquiredYear = licenseAcquisitionYearCol
+          ? parseInt(row[licenseAcquisitionYearCol]?.toString().trim() || '0')
+          : 0
 
-          if (acquiredYear > 0) {
-            yearColumns.forEach(yearCol => {
-              const yearColValue = parseInt(yearCol.trim())
+        // 연도별 컬럼 처리
+        if (acquiredYear > 0) {
+          yearColumns.forEach(yearCol => {
+            const yearColValue = parseInt(yearCol.trim())
 
-              if (yearColValue < acquiredYear) {
-                // 연도별 컬럼 수치 < 면허취득연도 → 공백
-                modifiedRow[yearCol] = ''
-              } else if (yearColValue === acquiredYear) {
-                // 연도별 컬럼 수치 = 면허취득연도 → "면제"
-                modifiedRow[yearCol] = '면제'
+            if (yearColValue < acquiredYear) {
+              // 연도별 컬럼 수치 < 면허취득연도 → 공백
+              modifiedRow[yearCol] = ''
+            } else if (yearColValue === acquiredYear) {
+              // 연도별 컬럼 수치 = 면허취득연도 → "면제"
+              modifiedRow[yearCol] = '면제'
+            } else {
+              // 연도별 컬럼 수치 > 면허취득연도
+              // VLOOKUP 로직: 해당 연도 시트에서 면허번호로 결과 찾기
+              const yearSheetData = yearSheetDataMap[yearCol]
+              if (yearSheetData && licenseNum) {
+                const result = yearSheetData.get(licenseNum)
+                modifiedRow[yearCol] = result || '미이수'
+              } else {
+                modifiedRow[yearCol] = '미이수'
               }
-              // 연도별 컬럼 수치 > 면허취득연도 → 기존 값 유지
-            })
+            }
+          })
+        }
+
+        // 면허신고연도 계산
+        if (licenseReportMap.has(licenseNum)) {
+          // 면허신고 데이터에 있는 경우: 최대 연도 반환
+          modifiedRow['면허신고연도'] = licenseReportMap.get(licenseNum)
+        } else {
+          // 면허신고 데이터에 없는 경우
+          if (acquiredYear > 0 && (currentYear - acquiredYear) < 3) {
+            modifiedRow['면허신고연도'] = '미대상'
+          } else {
+            modifiedRow['면허신고연도'] = '미신고'
           }
         }
 
@@ -106,6 +187,7 @@ export function FilterTab() {
       setProcessedData(processed)
     } catch (error) {
       console.error('파일 처리 중 오류 발생:', error)
+      alert('파일 처리 중 오류가 발생했습니다. 통합하기에서 받은 파일을 사용하고 있는지 확인해주세요.')
     } finally {
       setIsProcessing(false)
     }
@@ -166,100 +248,20 @@ export function FilterTab() {
           <h2 className="text-xl font-semibold mb-6">필터링</h2>
 
           <div className="space-y-6">
-            <p className="text-sm text-muted-foreground">
-              통합하기에서 받은 파일을 이용해서 다음 작업을 진행해 주세요.
-            </p>
-
-            {/* 1. 교육이수여부 */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">1. 교육이수여부</h3>
-
-              <div className="space-y-3 ml-4">
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">1)</span>
-                  <p className="text-sm">V2 셀로 가기</p>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">2)</span>
-                  <div className="flex-1">
-                    <p className="text-sm mb-2">아래 코드 스니펫을 복사하여 붙여넣기</p>
-                    <div className="bg-slate-900 text-slate-100 p-4 rounded-md overflow-x-auto">
-                      <pre className="text-xs font-mono whitespace-pre">
-{`=IFERROR(
-    VLOOKUP(
-        $A2,
-        INDIRECT("'" & V$1 & "'!$A$2:$E$50000"),
-        5,
-        FALSE
-    ),
-    "미이수"
-)`}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">3)</span>
-                  <p className="text-sm">쭉 끌어서 나머지 데이터 채우기</p>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">4)</span>
-                  <p className="text-sm">데이터를 다 채운 후 업로드하기</p>
+            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-4">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600 dark:text-blue-400 font-bold">ℹ️</span>
+                <div className="text-sm text-blue-800 dark:text-blue-200">
+                  <p className="font-semibold mb-1">자동 처리 안내</p>
+                  <p>통합하기에서 받은 파일을 업로드하면 교육이수여부와 면허신고연도를 자동으로 계산합니다.</p>
                 </div>
               </div>
             </div>
 
-            {/* 2. 면허신고연도 */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">2. 면허신고연도</h3>
+              <h3 className="text-lg font-semibold">통합 데이터 파일 업로드</h3>
 
-              <div className="space-y-3 ml-4">
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">1)</span>
-                  <p className="text-sm">AG2 셀로 가기</p>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">2)</span>
-                  <div className="flex-1">
-                    <p className="text-sm mb-2">아래 코드 스니펫을 복사하여 붙여넣기</p>
-                    <div className="bg-slate-900 text-slate-100 p-4 rounded-md overflow-x-auto">
-                      <pre className="text-xs font-mono whitespace-pre">
-{`==IF(
-    COUNTIF('면허신고 데이터'!$B$2:$B$50000, $A2)=0,
-    IF(YEAR(TODAY()) - $U2 < 3, "미대상", "미신고"),
-    AGGREGATE(
-        14, 6,
-        '면허신고 데이터'!$C$2:$C$50000 /
-        ('면허신고 데이터'!$B$2:$B$50000 = $A2),
-        1
-    )
-)`}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">3)</span>
-                  <p className="text-sm">쭉 끌어서 나머지 데이터 채우기</p>
-                </div>
-
-                <div className="flex gap-3">
-                  <span className="font-semibold text-sm min-w-[2rem]">4)</span>
-                  <p className="text-sm">데이터를 다 채운 후 업로드하기</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. 파일 업로드 */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">3. 그 후에 엑셀파일을 저장하고, 아래에 업로드해 주세요.</h3>
-
-              <div className="ml-4 space-y-4">
+              <div className="space-y-4">
                 <input
                   type="file"
                   accept=".xlsx,.xls"
@@ -282,15 +284,25 @@ export function FilterTab() {
                   <Button
                     onClick={processFile}
                     disabled={!file || isProcessing}
+                    size="lg"
                   >
                     {isProcessing ? '처리 중...' : '파일 처리하기'}
                   </Button>
 
                   {processedData.length > 0 && (
-                    <Button variant="secondary" onClick={downloadExcel}>
+                    <Button variant="secondary" size="lg" onClick={downloadExcel}>
                       엑셀 다운로드
                     </Button>
                   )}
+                </div>
+
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>처리 내용:</p>
+                  <ul className="list-disc list-inside ml-2 space-y-1">
+                    <li>교육이수여부 자동 계산 (연도별 시트 데이터 기반 VLOOKUP)</li>
+                    <li>면허신고연도 자동 계산 (면허신고 데이터 기반)</li>
+                    <li>면허취득연도 기준 면제 처리</li>
+                  </ul>
                 </div>
               </div>
             </div>
