@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx-js-style'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 
@@ -29,7 +31,13 @@ export function DashboardTab() {
   const [branchMapping, setBranchMapping] = useState<Map<string, string[]>>(new Map())
   // 대시보드 캡처를 위한 ref
   const dashboardRef = useRef<HTMLDivElement>(null)
+  const yearlyDashboardRef = useRef<HTMLDivElement>(null)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isDownloadingYearly, setIsDownloadingYearly] = useState(false)
+
+  // 연도별 현황용 선택 state
+  const [selectedYear, setSelectedYear] = useState<string>('')
+  const [selectedJibuForYearly, setSelectedJibuForYearly] = useState<string>('all')
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0]
@@ -170,6 +178,44 @@ export function DashboardTab() {
 
   // 선택된 지부에 따라 사용 가능한 분회 목록
   const availableBunhoes = useMemo(() => getAvailableBunhoes(), [filters['지부'], branchMapping, availableOptions])
+
+  // 연도별 현황 이미지 다운로드 함수
+  const downloadYearlyDashboardAsImage = async () => {
+    if (!yearlyDashboardRef.current) return
+
+    setIsDownloadingYearly(true)
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const canvas = await html2canvas(yearlyDashboardRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: yearlyDashboardRef.current.scrollWidth,
+        windowHeight: yearlyDashboardRef.current.scrollHeight
+      })
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const jibuText = selectedJibuForYearly && selectedJibuForYearly !== 'all' ? `_${selectedJibuForYearly}지부` : ''
+          link.download = `연도별현황_${selectedYear}년${jibuText}_${timestamp}.png`
+          link.href = url
+          link.click()
+          URL.revokeObjectURL(url)
+        }
+      })
+    } catch (error) {
+      console.error('이미지 다운로드 중 오류 발생:', error)
+      alert('이미지 다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setIsDownloadingYearly(false)
+    }
+  }
 
   // 대시보드 이미지 다운로드 함수
   const downloadDashboardAsImage = async () => {
@@ -326,6 +372,89 @@ export function DashboardTab() {
     }
   }, [filteredData])
 
+  // 동적 제목 생성
+  const dashboardTitle = useMemo(() => {
+    const selectedJibus = filters['지부']
+    const selectedBunhoes = filters['분회']
+
+    // 분회가 1개만 선택되었을 때
+    if (selectedBunhoes.length === 1 && selectedJibus.length === 1) {
+      return `${selectedJibus[0]}지부 ${selectedBunhoes[0]}분회 면허 관리 대시보드`
+    }
+
+    // 지부가 1개만 선택되었을 때
+    if (selectedJibus.length === 1) {
+      return `${selectedJibus[0]}지부 면허 관리 대시보드`
+    }
+
+    // 지부가 여러 개 또는 선택되지 않았을 때
+    return '면허 관리 대시보드'
+  }, [filters])
+
+  // 연도별 현황 통계 계산
+  const yearlyStatusStats = useMemo(() => {
+    if (!selectedYear || data.length === 0) return null
+
+    const stats: { [key: string]: { 이수자: number; 미이수: number; 면제: number; 유예: number; 비대상자: number; 합계: number } } = {}
+
+    // 지부를 선택하지 않은 경우: 지부별 집계
+    if (!selectedJibuForYearly || selectedJibuForYearly === 'all') {
+      data.forEach(row => {
+        const jibu = row['지부']?.toString().trim()
+        const yearStatus = row[selectedYear]?.toString().trim()
+
+        // 해당 연도에 데이터가 있는 경우만 집계 (공백이 아닌 경우)
+        if (jibu && yearStatus && yearStatus !== '') {
+          if (!stats[jibu]) {
+            stats[jibu] = { 이수자: 0, 미이수: 0, 면제: 0, 유예: 0, 비대상자: 0, 합계: 0 }
+          }
+
+          if (yearStatus === '이수자') stats[jibu].이수자++
+          else if (yearStatus === '미이수') stats[jibu].미이수++
+          else if (yearStatus === '면제') stats[jibu].면제++
+          else if (yearStatus === '유예') stats[jibu].유예++
+          else if (yearStatus === '비대상자') stats[jibu].비대상자++
+
+          stats[jibu].합계++
+        }
+      })
+    } else {
+      // 특정 지부 선택: 분회별 집계
+      data.forEach(row => {
+        const jibu = row['지부']?.toString().trim()
+        const bunhoe = row['분회']?.toString().trim()
+        const yearStatus = row[selectedYear]?.toString().trim()
+
+        // 선택한 지부와 일치하고, 해당 연도에 데이터가 있는 경우만 집계
+        if (jibu === selectedJibuForYearly && bunhoe && yearStatus && yearStatus !== '') {
+          if (!stats[bunhoe]) {
+            stats[bunhoe] = { 이수자: 0, 미이수: 0, 면제: 0, 유예: 0, 비대상자: 0, 합계: 0 }
+          }
+
+          if (yearStatus === '이수자') stats[bunhoe].이수자++
+          else if (yearStatus === '미이수') stats[bunhoe].미이수++
+          else if (yearStatus === '면제') stats[bunhoe].면제++
+          else if (yearStatus === '유예') stats[bunhoe].유예++
+          else if (yearStatus === '비대상자') stats[bunhoe].비대상자++
+
+          stats[bunhoe].합계++
+        }
+      })
+    }
+
+    // 객체를 배열로 변환하고 정렬
+    return Object.entries(stats)
+      .map(([name, counts]) => ({ name, ...counts }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [data, selectedYear, selectedJibuForYearly])
+
+  // 연도 목록 추출
+  const availableYears = useMemo(() => {
+    if (data.length === 0) return []
+    const columns = Object.keys(data[0])
+    return columns.filter(col => /^\d{4}$/.test(col.trim())).sort()
+  }, [data])
+
   const COLORS = ['#4472C4', '#ED7D31', '#A5A5A5', '#FFC000', '#5B9BD5']
 
   return (
@@ -438,21 +567,27 @@ export function DashboardTab() {
           </Card>
 
           {dashboardStats && (
-            <>
-              <div className="flex justify-end mb-4">
-                <Button
-                  onClick={downloadDashboardAsImage}
-                  disabled={isDownloading}
-                  size="lg"
-                  variant="default"
-                >
-                  {isDownloading ? '이미지 생성 중...' : '대시보드 이미지 다운로드'}
-                </Button>
-              </div>
+            <Tabs defaultValue="overall" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="overall">전체현황</TabsTrigger>
+                <TabsTrigger value="yearly">연도별 현황</TabsTrigger>
+              </TabsList>
 
-              <div ref={dashboardRef} className="space-y-6 bg-white p-6 rounded-lg">
+              <TabsContent value="overall" className="mt-6">
+                <div className="flex justify-end mb-4">
+                  <Button
+                    onClick={downloadDashboardAsImage}
+                    disabled={isDownloading}
+                    size="lg"
+                    variant="default"
+                  >
+                    {isDownloading ? '이미지 생성 중...' : '대시보드 이미지 다운로드'}
+                  </Button>
+                </div>
+
+                <div ref={dashboardRef} className="space-y-6 bg-white p-6 rounded-lg">
                 <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
-                  <h2 className="text-2xl font-bold">면허 관리 대시보드</h2>
+                  <h2 className="text-2xl font-bold">{dashboardTitle}</h2>
                   <p className="text-sm text-muted-foreground mt-2">
                     생성일시: {new Date().toLocaleString('ko-KR')}
                   </p>
@@ -660,7 +795,138 @@ export function DashboardTab() {
                 </div>
               )}
               </div>
-            </>
+              </TabsContent>
+
+              <TabsContent value="yearly" className="mt-6">
+                {selectedYear && yearlyStatusStats && yearlyStatusStats.length > 0 && (
+                  <div className="flex justify-end mb-4">
+                    <Button
+                      onClick={downloadYearlyDashboardAsImage}
+                      disabled={isDownloadingYearly}
+                      size="lg"
+                      variant="default"
+                    >
+                      {isDownloadingYearly ? '이미지 생성 중...' : '연도별 현황 이미지 다운로드'}
+                    </Button>
+                  </div>
+                )}
+
+                <Card>
+                  <CardContent className="p-6">
+                    <h3 className="text-lg font-semibold mb-4">연도별 현황</h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">년도 선택</label>
+                        <Select value={selectedYear} onValueChange={setSelectedYear}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="년도를 선택하세요" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableYears.map(year => (
+                              <SelectItem key={year} value={year}>
+                                {year}년
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">지부 선택 (선택사항)</label>
+                        <Select value={selectedJibuForYearly} onValueChange={setSelectedJibuForYearly}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="전체 지부" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">전체 지부</SelectItem>
+                            {availableOptions['지부']?.map(jibu => (
+                              <SelectItem key={jibu} value={jibu}>
+                                {jibu}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {!selectedYear ? (
+                      <div className="text-center text-muted-foreground py-8">
+                        년도를 선택하세요
+                      </div>
+                    ) : yearlyStatusStats && yearlyStatusStats.length > 0 ? (
+                      <div ref={yearlyDashboardRef} className="bg-white p-6 rounded-lg">
+                        <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
+                          <h2 className="text-2xl font-bold">
+                            {selectedYear}년 보수교육 이수 현황
+                            {selectedJibuForYearly && selectedJibuForYearly !== 'all' && ` - ${selectedJibuForYearly}지부`}
+                          </h2>
+                          <p className="text-sm text-muted-foreground mt-2">
+                            생성일시: {new Date().toLocaleString('ko-KR')}
+                          </p>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm border-2 border-gray-300">
+                          <thead>
+                            <tr className="border-b-2 border-gray-300 bg-gray-50">
+                              <th className="text-left p-3 border-r border-gray-300 font-semibold">
+                                {selectedJibuForYearly && selectedJibuForYearly !== 'all' ? '분회' : '지부'}
+                              </th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">이수자</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">미이수</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">면제</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">유예</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">비대상자</th>
+                              <th className="text-right p-3 font-semibold">합계</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {yearlyStatusStats.map((stat, index) => (
+                              <tr key={stat.name} className={`border-b border-gray-300 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                <td className="p-3 border-r border-gray-300">{stat.name}</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.이수자.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.미이수.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.면제.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.유예.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.비대상자.toLocaleString()}명</td>
+                                <td className="text-right p-3 font-semibold">{stat.합계.toLocaleString()}명</td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-gray-300 bg-blue-50 font-semibold">
+                              <td className="p-3 border-r border-gray-300">합계</td>
+                              <td className="text-right p-3 border-r border-gray-300">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.이수자, 0).toLocaleString()}명
+                              </td>
+                              <td className="text-right p-3 border-r border-gray-300">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.미이수, 0).toLocaleString()}명
+                              </td>
+                              <td className="text-right p-3 border-r border-gray-300">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.면제, 0).toLocaleString()}명
+                              </td>
+                              <td className="text-right p-3 border-r border-gray-300">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.유예, 0).toLocaleString()}명
+                              </td>
+                              <td className="text-right p-3 border-r border-gray-300">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.비대상자, 0).toLocaleString()}명
+                              </td>
+                              <td className="text-right p-3">
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.합계, 0).toLocaleString()}명
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-muted-foreground py-8">
+                        선택한 조건에 해당하는 데이터가 없습니다
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           )}
         </>
       )}
