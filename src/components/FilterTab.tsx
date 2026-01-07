@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -196,6 +196,9 @@ export function FilterTab() {
   const downloadExcel = () => {
     if (processedData.length === 0) return
 
+    // 현재 연도
+    const currentYear = new Date().getFullYear()
+
     // 컬럼 순서 구성
     const allColumns = Object.keys(processedData[0])
 
@@ -230,9 +233,131 @@ export function FilterTab() {
 
     console.log('필터링 탭 최종 컬럼 순서:', columnOrder)
 
+    // 시트 생성
     const worksheet = XLSX.utils.json_to_sheet(processedData, {
       header: columnOrder
     })
+
+    // 문자열의 시각적 너비 계산 (한글은 영문보다 넓음)
+    const getVisualLength = (str: string): number => {
+      let length = 0
+      for (let i = 0; i < str.length; i++) {
+        const charCode = str.charCodeAt(i)
+        // 한글, 중국어, 일본어 등 (2바이트 문자)
+        if (charCode > 0x007F) {
+          length += 2
+        } else {
+          length += 1
+        }
+      }
+      return length
+    }
+
+    // 열 너비 자동 조정
+    const colWidths = columnOrder.map(col => {
+      // 컬럼명 시각적 길이
+      const headerLength = getVisualLength(col)
+
+      // 해당 컬럼의 최대 데이터 시각적 길이
+      const maxDataLength = processedData.reduce((max, row) => {
+        const value = row[col]?.toString() || ''
+        return Math.max(max, getVisualLength(value))
+      }, 0)
+
+      // 최대 길이 계산 (헤더와 데이터 중 큰 값)
+      const maxLength = Math.max(headerLength, maxDataLength)
+
+      // 너비 설정 (최소 10, 최대 60)
+      return { wch: Math.min(Math.max(maxLength / 2 + 2, 10), 60) }
+    })
+
+    worksheet['!cols'] = colWidths
+
+    // 셀 범위 가져오기
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+
+    // 헤더 스타일 (첫 번째 행)
+    const headerStyle = {
+      fill: { fgColor: { rgb: '4472C4' } },
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    }
+
+    // 기본 테두리 스타일
+    const defaultBorder = {
+      top: { style: 'thin', color: { rgb: 'D0D0D0' } },
+      bottom: { style: 'thin', color: { rgb: 'D0D0D0' } },
+      left: { style: 'thin', color: { rgb: 'D0D0D0' } },
+      right: { style: 'thin', color: { rgb: 'D0D0D0' } }
+    }
+
+    // 조건부 색상 스타일
+    const getConditionalStyle = (value: string, colName: string) => {
+      const baseStyle: any = {
+        border: defaultBorder,
+        alignment: { horizontal: 'center', vertical: 'center' }
+      }
+
+      // 연도 컬럼 (교육이수여부)
+      if (isYearColumn(colName)) {
+        if (value === '미이수') {
+          baseStyle.fill = { fgColor: { rgb: 'FFC7CE' } } // 연한 빨강
+          baseStyle.font = { color: { rgb: '000000' } } // 검정색
+        } else if (value === '이수자' || value === '면제' || value === '유예' || value === '비대상자') {
+          baseStyle.fill = { fgColor: { rgb: 'C6EFCE' } } // 연한 초록
+          baseStyle.font = { color: { rgb: '000000' } } // 검정색
+        }
+      }
+
+      // 면허신고연도
+      if (colName === '면허신고연도') {
+        if (value === '미신고') {
+          baseStyle.fill = { fgColor: { rgb: 'FFC7CE' } } // 연한 빨강
+          baseStyle.font = { color: { rgb: '000000' }, bold: true } // 검정색 굵게
+        } else if (!isNaN(parseInt(value))) {
+          // 연도 숫자인 경우
+          const reportYear = parseInt(value)
+          const yearDiff = currentYear - reportYear
+
+          if (yearDiff >= 3) {
+            // 현재연도 - 면허신고연도 >= 3: 미신고와 같은 서식
+            baseStyle.fill = { fgColor: { rgb: 'FFC7CE' } } // 연한 빨강
+            baseStyle.font = { color: { rgb: '000000' }, bold: true } // 검정색 굵게
+          }
+          // yearDiff < 3: 서식 적용하지 않음 (baseStyle의 기본 테두리와 정렬만 적용)
+        }
+        // '미대상': 서식 적용하지 않음 (baseStyle의 기본 테두리와 정렬만 적용)
+      }
+
+      return baseStyle
+    }
+
+    // 모든 셀에 스타일 적용
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
+        const cell = worksheet[cellAddress]
+
+        if (!cell) continue
+
+        // 헤더 행 (첫 번째 행)
+        if (R === 0) {
+          cell.s = headerStyle
+        } else {
+          // 데이터 행
+          const colName = columnOrder[C]
+          const value = cell.v?.toString() || ''
+          cell.s = getConditionalStyle(value, colName)
+        }
+      }
+    }
+
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, '필터링_처리결과')
     XLSX.writeFile(workbook, '필터링_처리결과.xlsx', {
