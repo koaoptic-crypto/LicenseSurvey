@@ -395,25 +395,24 @@ export function DashboardTab() {
   const yearlyStatusStats = useMemo(() => {
     if (!selectedYear || data.length === 0) return null
 
-    const stats: { [key: string]: { 이수자: number; 미이수: number; 면제: number; 유예: number; 비대상자: number; 합계: number } } = {}
+    const stats: { [key: string]: { 개설: number; 종사: number; 미취업: number; 합계: number } } = {}
 
     // 지부를 선택하지 않은 경우: 지부별 집계
     if (!selectedJibuForYearly || selectedJibuForYearly === 'all') {
       data.forEach(row => {
         const jibu = row['지부']?.toString().trim()
         const yearStatus = row[selectedYear]?.toString().trim()
+        const gaeseolStatus = row['개설현황']?.toString().trim()
 
         // 해당 연도에 데이터가 있는 경우만 집계 (공백이 아닌 경우)
-        if (jibu && yearStatus && yearStatus !== '') {
+        if (jibu && yearStatus && yearStatus !== '' && gaeseolStatus) {
           if (!stats[jibu]) {
-            stats[jibu] = { 이수자: 0, 미이수: 0, 면제: 0, 유예: 0, 비대상자: 0, 합계: 0 }
+            stats[jibu] = { 개설: 0, 종사: 0, 미취업: 0, 합계: 0 }
           }
 
-          if (yearStatus === '이수자') stats[jibu].이수자++
-          else if (yearStatus === '미이수') stats[jibu].미이수++
-          else if (yearStatus === '면제') stats[jibu].면제++
-          else if (yearStatus === '유예') stats[jibu].유예++
-          else if (yearStatus === '비대상자') stats[jibu].비대상자++
+          if (gaeseolStatus === '개설') stats[jibu].개설++
+          else if (gaeseolStatus === '종사') stats[jibu].종사++
+          else if (gaeseolStatus === '미취업') stats[jibu].미취업++
 
           stats[jibu].합계++
         }
@@ -424,18 +423,17 @@ export function DashboardTab() {
         const jibu = row['지부']?.toString().trim()
         const bunhoe = row['분회']?.toString().trim()
         const yearStatus = row[selectedYear]?.toString().trim()
+        const gaeseolStatus = row['개설현황']?.toString().trim()
 
         // 선택한 지부와 일치하고, 해당 연도에 데이터가 있는 경우만 집계
-        if (jibu === selectedJibuForYearly && bunhoe && yearStatus && yearStatus !== '') {
+        if (jibu === selectedJibuForYearly && bunhoe && yearStatus && yearStatus !== '' && gaeseolStatus) {
           if (!stats[bunhoe]) {
-            stats[bunhoe] = { 이수자: 0, 미이수: 0, 면제: 0, 유예: 0, 비대상자: 0, 합계: 0 }
+            stats[bunhoe] = { 개설: 0, 종사: 0, 미취업: 0, 합계: 0 }
           }
 
-          if (yearStatus === '이수자') stats[bunhoe].이수자++
-          else if (yearStatus === '미이수') stats[bunhoe].미이수++
-          else if (yearStatus === '면제') stats[bunhoe].면제++
-          else if (yearStatus === '유예') stats[bunhoe].유예++
-          else if (yearStatus === '비대상자') stats[bunhoe].비대상자++
+          if (gaeseolStatus === '개설') stats[bunhoe].개설++
+          else if (gaeseolStatus === '종사') stats[bunhoe].종사++
+          else if (gaeseolStatus === '미취업') stats[bunhoe].미취업++
 
           stats[bunhoe].합계++
         }
@@ -873,11 +871,9 @@ export function DashboardTab() {
                               <th className="text-left p-3 border-r border-gray-300 font-semibold">
                                 {selectedJibuForYearly && selectedJibuForYearly !== 'all' ? '분회' : '지부'}
                               </th>
-                              <th className="text-right p-3 border-r border-gray-300 font-semibold">이수자</th>
-                              <th className="text-right p-3 border-r border-gray-300 font-semibold">미이수</th>
-                              <th className="text-right p-3 border-r border-gray-300 font-semibold">면제</th>
-                              <th className="text-right p-3 border-r border-gray-300 font-semibold">유예</th>
-                              <th className="text-right p-3 border-r border-gray-300 font-semibold">비대상자</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">개설</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">종사</th>
+                              <th className="text-right p-3 border-r border-gray-300 font-semibold">미취업</th>
                               <th className="text-right p-3 font-semibold">합계</th>
                             </tr>
                           </thead>
@@ -885,30 +881,22 @@ export function DashboardTab() {
                             {yearlyStatusStats.map((stat, index) => (
                               <tr key={stat.name} className={`border-b border-gray-300 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                                 <td className="p-3 border-r border-gray-300">{stat.name}</td>
-                                <td className="text-right p-3 border-r border-gray-300">{stat.이수자.toLocaleString()}명</td>
-                                <td className="text-right p-3 border-r border-gray-300">{stat.미이수.toLocaleString()}명</td>
-                                <td className="text-right p-3 border-r border-gray-300">{stat.면제.toLocaleString()}명</td>
-                                <td className="text-right p-3 border-r border-gray-300">{stat.유예.toLocaleString()}명</td>
-                                <td className="text-right p-3 border-r border-gray-300">{stat.비대상자.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.개설.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.종사.toLocaleString()}명</td>
+                                <td className="text-right p-3 border-r border-gray-300">{stat.미취업.toLocaleString()}명</td>
                                 <td className="text-right p-3 font-semibold">{stat.합계.toLocaleString()}명</td>
                               </tr>
                             ))}
                             <tr className="border-t-2 border-gray-300 bg-blue-50 font-semibold">
                               <td className="p-3 border-r border-gray-300">합계</td>
                               <td className="text-right p-3 border-r border-gray-300">
-                                {yearlyStatusStats.reduce((sum, s) => sum + s.이수자, 0).toLocaleString()}명
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.개설, 0).toLocaleString()}명
                               </td>
                               <td className="text-right p-3 border-r border-gray-300">
-                                {yearlyStatusStats.reduce((sum, s) => sum + s.미이수, 0).toLocaleString()}명
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.종사, 0).toLocaleString()}명
                               </td>
                               <td className="text-right p-3 border-r border-gray-300">
-                                {yearlyStatusStats.reduce((sum, s) => sum + s.면제, 0).toLocaleString()}명
-                              </td>
-                              <td className="text-right p-3 border-r border-gray-300">
-                                {yearlyStatusStats.reduce((sum, s) => sum + s.유예, 0).toLocaleString()}명
-                              </td>
-                              <td className="text-right p-3 border-r border-gray-300">
-                                {yearlyStatusStats.reduce((sum, s) => sum + s.비대상자, 0).toLocaleString()}명
+                                {yearlyStatusStats.reduce((sum, s) => sum + s.미취업, 0).toLocaleString()}명
                               </td>
                               <td className="text-right p-3">
                                 {yearlyStatusStats.reduce((sum, s) => sum + s.합계, 0).toLocaleString()}명
