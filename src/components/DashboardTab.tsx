@@ -362,6 +362,33 @@ export function DashboardTab() {
       }))
       .sort((a, b) => a.yearsNotCompleted - b.yearsNotCompleted)
 
+    // 개설여부별 이수현황 통계 (연도별)
+    const gaeseolByYearStats = yearColumns.map(year => {
+      let gaeseol = 0
+      let jongsa = 0
+      let michwiup = 0
+
+      filteredData.forEach(row => {
+        const yearStatus = row[year]?.toString().trim()
+        const gaeseolStatus = row['개설현황']?.toString().trim()
+
+        // 해당 연도에 이수자인 경우만 집계
+        if (yearStatus === '이수자' && gaeseolStatus) {
+          if (gaeseolStatus === '개설') gaeseol++
+          else if (gaeseolStatus === '종사') jongsa++
+          else if (gaeseolStatus === '미취업') michwiup++
+        }
+      })
+
+      return {
+        year,
+        개설: gaeseol,
+        종사: jongsa,
+        미취업: michwiup,
+        합계: gaeseol + jongsa + michwiup
+      }
+    })
+
     return {
       totalMembers,
       latestYear,
@@ -372,7 +399,8 @@ export function DashboardTab() {
       notReportedCount,
       notApplicableCount,
       yearlyStats,
-      notCompletedYearsStats
+      notCompletedYearsStats,
+      gaeseolByYearStats
     }
   }, [filteredData])
 
@@ -660,37 +688,8 @@ export function DashboardTab() {
 
                 <Card className="border-2 border-gray-300">
                   <CardContent className="p-6">
-                    <h3 className="text-lg font-semibold mb-4">교육이수 현황 ({dashboardStats.latestYear})</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <PieChart>
-                        <Pie
-                          data={[
-                            { name: '이수자', value: dashboardStats.completedCount },
-                            { name: '미이수자', value: dashboardStats.notCompletedCount },
-                            { name: '면제/유예/비대상', value: dashboardStats.exemptCount }
-                          ]}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {[0, 1, 2].map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-2 border-gray-300">
-                  <CardContent className="p-6">
                     <h3 className="text-lg font-semibold mb-4">면허신고 현황</h3>
-                    <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={220}>
                       <PieChart>
                         <Pie
                           data={[
@@ -702,7 +701,7 @@ export function DashboardTab() {
                           cy="50%"
                           labelLine={false}
                           label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-                          outerRadius={80}
+                          outerRadius={75}
                           fill="#8884d8"
                           dataKey="value"
                         >
@@ -713,6 +712,59 @@ export function DashboardTab() {
                         <Tooltip />
                       </PieChart>
                     </ResponsiveContainer>
+                    <div className="grid grid-cols-3 gap-2 mt-4">
+                      <div className="text-center p-2 bg-blue-50 rounded border border-blue-200">
+                        <div className="text-xs text-muted-foreground">신고</div>
+                        <div className="text-lg font-bold text-blue-600">{dashboardStats.reportedCount.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {((dashboardStats.reportedCount / dashboardStats.totalMembers) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="text-center p-2 bg-orange-50 rounded border border-orange-200">
+                        <div className="text-xs text-muted-foreground">미신고</div>
+                        <div className="text-lg font-bold text-orange-600">{dashboardStats.notReportedCount.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {((dashboardStats.notReportedCount / dashboardStats.totalMembers) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="text-center p-2 bg-gray-50 rounded border border-gray-200">
+                        <div className="text-xs text-muted-foreground">미대상</div>
+                        <div className="text-lg font-bold text-gray-600">{dashboardStats.notApplicableCount.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {((dashboardStats.notApplicableCount / dashboardStats.totalMembers) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-2 border-gray-300">
+                  <CardContent className="p-6">
+                    <h3 className="text-lg font-semibold mb-4">개설여부별 이수현황</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm border-2 border-gray-300">
+                        <thead>
+                          <tr className="border-b-2 border-gray-300">
+                            <th className="text-left p-2 border-r border-gray-300">연도</th>
+                            <th className="text-right p-2 border-r border-gray-300">개설</th>
+                            <th className="text-right p-2 border-r border-gray-300">종사</th>
+                            <th className="text-right p-2 border-r border-gray-300">미취업</th>
+                            <th className="text-right p-2">합계</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dashboardStats.gaeseolByYearStats.map(stat => (
+                            <tr key={stat.year} className="border-b border-gray-300">
+                              <td className="p-2 border-r border-gray-300">{stat.year}</td>
+                              <td className="text-right p-2 border-r border-gray-300">{stat.개설.toLocaleString()}</td>
+                              <td className="text-right p-2 border-r border-gray-300">{stat.종사.toLocaleString()}</td>
+                              <td className="text-right p-2 border-r border-gray-300">{stat.미취업.toLocaleString()}</td>
+                              <td className="text-right p-2">{stat.합계.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </CardContent>
                 </Card>
 
