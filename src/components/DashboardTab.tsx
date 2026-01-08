@@ -38,6 +38,7 @@ export function DashboardTab() {
   // 연도별 현황용 선택 state
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [selectedJibuForYearly, setSelectedJibuForYearly] = useState<string>('all')
+  const [selectedMemberTypes, setSelectedMemberTypes] = useState<string[]>([])
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0]
@@ -101,6 +102,9 @@ export function DashboardTab() {
         defaultFilters[key] = options[key] || []
       })
       setFilters(defaultFilters)
+
+      // 연도별 현황용 회원구분도 기본적으로 전체 선택
+      setSelectedMemberTypes(options['회원구분'] || [])
     } catch (error) {
       console.error('파일 처리 중 오류 발생:', error)
       alert('파일 처리 중 오류가 발생했습니다.')
@@ -403,9 +407,15 @@ export function DashboardTab() {
         const jibu = row['지부']?.toString().trim()
         const yearStatus = row[selectedYear]?.toString().trim()
         const gaeseolStatus = row['개설현황']?.toString().trim()
+        const memberType = row['회원구분']?.toString().trim()
 
-        // 해당 연도에 데이터가 있는 경우만 집계 (공백이 아닌 경우)
-        if (jibu && yearStatus && yearStatus !== '' && gaeseolStatus) {
+        // 회원구분 필터 적용
+        if (selectedMemberTypes.length > 0 && memberType && !selectedMemberTypes.includes(memberType)) {
+          return
+        }
+
+        // 해당 연도에 이수자인 경우만 집계
+        if (jibu && yearStatus === '이수자' && gaeseolStatus) {
           if (!stats[jibu]) {
             stats[jibu] = { 개설: 0, 종사: 0, 미취업: 0, 합계: 0 }
           }
@@ -424,9 +434,15 @@ export function DashboardTab() {
         const bunhoe = row['분회']?.toString().trim()
         const yearStatus = row[selectedYear]?.toString().trim()
         const gaeseolStatus = row['개설현황']?.toString().trim()
+        const memberType = row['회원구분']?.toString().trim()
 
-        // 선택한 지부와 일치하고, 해당 연도에 데이터가 있는 경우만 집계
-        if (jibu === selectedJibuForYearly && bunhoe && yearStatus && yearStatus !== '' && gaeseolStatus) {
+        // 회원구분 필터 적용
+        if (selectedMemberTypes.length > 0 && memberType && !selectedMemberTypes.includes(memberType)) {
+          return
+        }
+
+        // 선택한 지부와 일치하고, 해당 연도에 이수자인 경우만 집계
+        if (jibu === selectedJibuForYearly && bunhoe && yearStatus === '이수자' && gaeseolStatus) {
           if (!stats[bunhoe]) {
             stats[bunhoe] = { 개설: 0, 종사: 0, 미취업: 0, 합계: 0 }
           }
@@ -444,7 +460,7 @@ export function DashboardTab() {
     return Object.entries(stats)
       .map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [data, selectedYear, selectedJibuForYearly])
+  }, [data, selectedYear, selectedJibuForYearly, selectedMemberTypes])
 
   // 연도 목록 추출
   const availableYears = useMemo(() => {
@@ -497,81 +513,79 @@ export function DashboardTab() {
         </CardContent>
       </Card>
 
-      {data.length > 0 && (
+      {data.length > 0 && dashboardStats && (
         <>
-          <Card>
-            <CardContent className="p-6">
-              <h3 className="text-lg font-semibold mb-4">필터</h3>
+          <Tabs defaultValue="overall" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="overall">전체현황</TabsTrigger>
+              <TabsTrigger value="yearly">연도별 현황</TabsTrigger>
+            </TabsList>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {Object.keys(availableOptions).map(filterKey => (
-                  <div key={filterKey} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold">
-                        {filterKey}
-                        {filterKey === '분회' && filters['지부'].length === 0 && (
-                          <span className="text-xs text-muted-foreground ml-2">(지부 선택 필요)</span>
-                        )}
-                      </h4>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleSelectAll(filterKey)}
-                          className="h-7 text-xs"
-                        >
-                          전체선택
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeselectAll(filterKey)}
-                          className="h-7 text-xs"
-                        >
-                          선택해제
-                        </Button>
-                      </div>
-                    </div>
+            <TabsContent value="overall" className="mt-6 space-y-6">
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">필터</h3>
 
-                    <div className="max-h-48 overflow-y-auto border rounded-md p-3 space-y-2">
-                      {filterKey === '분회' && filters['지부'].length === 0 ? (
-                        <div className="text-sm text-muted-foreground p-2 text-center">
-                          지부를 먼저 선택해주세요
-                        </div>
-                      ) : (
-                        (filterKey === '분회' ? availableBunhoes : (availableOptions[filterKey] || [])).map(option => (
-                          <div key={option} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`${filterKey}-${option}`}
-                              checked={filters[filterKey]?.includes(option)}
-                              onCheckedChange={(checked) =>
-                                handleFilterChange(filterKey, option, checked === true)
-                              }
-                            />
-                            <label
-                              htmlFor={`${filterKey}-${option}`}
-                              className="text-sm cursor-pointer"
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {Object.keys(availableOptions).map(filterKey => (
+                      <div key={filterKey} className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold">
+                            {filterKey}
+                            {filterKey === '분회' && filters['지부'].length === 0 && (
+                              <span className="text-xs text-muted-foreground ml-2">(지부 선택 필요)</span>
+                            )}
+                          </h4>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleSelectAll(filterKey)}
+                              className="h-7 text-xs"
                             >
-                              {option}
-                            </label>
+                              전체선택
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeselectAll(filterKey)}
+                              className="h-7 text-xs"
+                            >
+                              선택해제
+                            </Button>
                           </div>
-                        ))
-                      )}
-                    </div>
+                        </div>
+
+                        <div className="max-h-48 overflow-y-auto border rounded-md p-3 space-y-2">
+                          {filterKey === '분회' && filters['지부'].length === 0 ? (
+                            <div className="text-sm text-muted-foreground p-2 text-center">
+                              지부를 먼저 선택해주세요
+                            </div>
+                          ) : (
+                            (filterKey === '분회' ? availableBunhoes : (availableOptions[filterKey] || [])).map(option => (
+                              <div key={option} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`${filterKey}-${option}`}
+                                  checked={filters[filterKey]?.includes(option)}
+                                  onCheckedChange={(checked) =>
+                                    handleFilterChange(filterKey, option, checked === true)
+                                  }
+                                />
+                                <label
+                                  htmlFor={`${filterKey}-${option}`}
+                                  className="text-sm cursor-pointer"
+                                >
+                                  {option}
+                                </label>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {dashboardStats && (
-            <Tabs defaultValue="overall" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="overall">전체현황</TabsTrigger>
-                <TabsTrigger value="yearly">연도별 현황</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overall" className="mt-6">
+                </CardContent>
+              </Card>
                 <div className="flex justify-end mb-4">
                   <Button
                     onClick={downloadDashboardAsImage}
@@ -813,38 +827,89 @@ export function DashboardTab() {
                   <CardContent className="p-6">
                     <h3 className="text-lg font-semibold mb-4">연도별 현황</h3>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">년도 선택</label>
-                        <Select value={selectedYear} onValueChange={setSelectedYear}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="년도를 선택하세요" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableYears.map(year => (
-                              <SelectItem key={year} value={year}>
-                                {year}년
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <div className="space-y-6 mb-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">년도 선택</label>
+                          <Select value={selectedYear} onValueChange={setSelectedYear}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="년도를 선택하세요" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableYears.map(year => (
+                                <SelectItem key={year} value={year}>
+                                  {year}년
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">지부 선택 (선택사항)</label>
+                          <Select value={selectedJibuForYearly} onValueChange={setSelectedJibuForYearly}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="전체 지부" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">전체 지부</SelectItem>
+                              {availableOptions['지부']?.map(jibu => (
+                                <SelectItem key={jibu} value={jibu}>
+                                  {jibu}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">지부 선택 (선택사항)</label>
-                        <Select value={selectedJibuForYearly} onValueChange={setSelectedJibuForYearly}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="전체 지부" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">전체 지부</SelectItem>
-                            {availableOptions['지부']?.map(jibu => (
-                              <SelectItem key={jibu} value={jibu}>
-                                {jibu}
-                              </SelectItem>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold">회원구분</h4>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedMemberTypes(availableOptions['회원구분'] || [])}
+                              className="h-7 text-xs"
+                            >
+                              전체선택
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedMemberTypes([])}
+                              className="h-7 text-xs"
+                            >
+                              선택해제
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="border rounded-md p-3">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {(availableOptions['회원구분'] || []).map(option => (
+                              <div key={option} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`yearly-membertype-${option}`}
+                                  checked={selectedMemberTypes.includes(option)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedMemberTypes(prev => [...prev, option])
+                                    } else {
+                                      setSelectedMemberTypes(prev => prev.filter(v => v !== option))
+                                    }
+                                  }}
+                                />
+                                <label
+                                  htmlFor={`yearly-membertype-${option}`}
+                                  className="text-sm cursor-pointer"
+                                >
+                                  {option}
+                                </label>
+                              </div>
                             ))}
-                          </SelectContent>
-                        </Select>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -915,7 +980,6 @@ export function DashboardTab() {
                 </Card>
               </TabsContent>
             </Tabs>
-          )}
         </>
       )}
     </div>

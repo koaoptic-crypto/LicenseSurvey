@@ -58,8 +58,8 @@ export function MergeTab() {
   }
 
   const mergeAndDownload = async () => {
-    if (!memberFile || !exemptionFile || !educationCenterFile || !licenseFile) {
-      alert('필수 파일을 업로드해주세요. (회원 데이터, 면제유예비대상 데이터, 보수교육(면허신고센터) 데이터, 면허신고 데이터)')
+    if (!memberFile || !exemptionFile || !licenseFile) {
+      alert('필수 파일을 업로드해주세요. (회원 데이터, 면제유예비대상 데이터, 면허신고 데이터)')
       return
     }
 
@@ -90,17 +90,18 @@ export function MergeTab() {
       const exemptionData = await exemptionFile.arrayBuffer()
       const exemptionWorkbook = XLSX.read(exemptionData)
 
-      // 3. 보수교육(면허신고센터) 데이터의 모든 시트 읽기
-      const educationCenterData = await educationCenterFile.arrayBuffer()
-      const educationCenterWorkbook = XLSX.read(educationCenterData)
+      // 3. 보수교육(면허신고센터) 데이터의 모든 시트 읽기 (선택적)
+      let educationCenterWorkbook: XLSX.WorkBook | null = null
+      if (educationCenterFile) {
+        const educationCenterData = await educationCenterFile.arrayBuffer()
+        educationCenterWorkbook = XLSX.read(educationCenterData)
+      }
 
-      // 4. 보수교육(회원관리) 데이터 읽기 (첫 번째 시트만, 선택적)
-      let educationMemberJson: any[] = []
+      // 4. 보수교육(회원관리) 데이터의 모든 시트 읽기 (선택적)
+      let educationMemberWorkbook: XLSX.WorkBook | null = null
       if (educationMemberFile) {
         const educationMemberData = await educationMemberFile.arrayBuffer()
-        const educationMemberWorkbook = XLSX.read(educationMemberData)
-        const educationMemberSheet = educationMemberWorkbook.Sheets[educationMemberWorkbook.SheetNames[0]]
-        educationMemberJson = XLSX.utils.sheet_to_json(educationMemberSheet) as any[]
+        educationMemberWorkbook = XLSX.read(educationMemberData)
       }
 
       // 5. 연도별로 데이터 그룹화
@@ -116,24 +117,29 @@ export function MergeTab() {
         yearDataMap[sheetName].push(...jsonData)
       })
 
-      // 보수교육(면허신고센터) 데이터 추가
-      educationCenterWorkbook.SheetNames.forEach((sheetName) => {
-        const sheet = educationCenterWorkbook.Sheets[sheetName]
-        const jsonData = XLSX.utils.sheet_to_json(sheet)
-        if (!yearDataMap[sheetName]) {
-          yearDataMap[sheetName] = []
-        }
-        yearDataMap[sheetName].push(...jsonData)
-      })
+      // 보수교육(면허신고센터) 데이터 추가 (있는 경우만)
+      if (educationCenterWorkbook) {
+        educationCenterWorkbook.SheetNames.forEach((sheetName) => {
+          const sheet = educationCenterWorkbook!.Sheets[sheetName]
+          const jsonData = XLSX.utils.sheet_to_json(sheet)
+          if (!yearDataMap[sheetName]) {
+            yearDataMap[sheetName] = []
+          }
+          yearDataMap[sheetName].push(...jsonData)
+        })
+      }
 
-      // 보수교육(회원관리) 데이터 추가 (대상연도 기준으로 그룹화)
-      educationMemberJson.forEach((row: any) => {
-        const year = row['대상연도'] || '기타'
-        if (!yearDataMap[year]) {
-          yearDataMap[year] = []
-        }
-        yearDataMap[year].push(row)
-      })
+      // 보수교육(회원관리) 데이터 추가 (있는 경우만)
+      if (educationMemberWorkbook) {
+        educationMemberWorkbook.SheetNames.forEach((sheetName) => {
+          const sheet = educationMemberWorkbook!.Sheets[sheetName]
+          const jsonData = XLSX.utils.sheet_to_json(sheet)
+          if (!yearDataMap[sheetName]) {
+            yearDataMap[sheetName] = []
+          }
+          yearDataMap[sheetName].push(...jsonData)
+        })
+      }
 
       // 6. 면허신고 데이터 읽기 (첫 번째 시트만)
       const licenseData = await licenseFile.arrayBuffer()
@@ -320,7 +326,7 @@ export function MergeTab() {
     }
   }
 
-  const allFilesUploaded = memberFile && exemptionFile && educationCenterFile && licenseFile
+  const allFilesUploaded = memberFile && exemptionFile && licenseFile
 
   return (
     <div className="space-y-6">
@@ -390,7 +396,7 @@ export function MergeTab() {
             {/* 보수교육(면허신고센터) 데이터 */}
             <div className="border rounded-md p-4">
               <label className="block text-sm font-medium mb-2">
-                3. 보수교육(면허신고센터) 데이터
+                3. 보수교육(면허신고센터) 데이터 <span className="text-muted-foreground">(선택사항)</span>
               </label>
               <input
                 type="file"
@@ -485,7 +491,9 @@ export function MergeTab() {
             <div className="space-y-2 text-sm">
               <p>✓ 회원 데이터: <span className="font-mono text-muted-foreground">{memberFile.name}</span></p>
               <p>✓ 면제유예비대상 데이터: <span className="font-mono text-muted-foreground">{exemptionFile.name}</span></p>
-              <p>✓ 보수교육(면허신고센터) 데이터: <span className="font-mono text-muted-foreground">{educationCenterFile.name}</span></p>
+              {educationCenterFile && (
+                <p>✓ 보수교육(면허신고센터) 데이터: <span className="font-mono text-muted-foreground">{educationCenterFile.name}</span></p>
+              )}
               {educationMemberFile && (
                 <p>✓ 보수교육(회원관리) 데이터: <span className="font-mono text-muted-foreground">{educationMemberFile.name}</span></p>
               )}
@@ -495,7 +503,7 @@ export function MergeTab() {
               <p className="text-sm font-semibold mb-2">통합 파일 구조:</p>
               <ul className="text-sm space-y-1 ml-4">
                 <li>• 시트 1: 회원 데이터</li>
-                <li>• 시트 2~N: 연도별 데이터 (면제유예비대상 + 보수교육(면허신고센터){educationMemberFile ? ' + 보수교육(회원관리)' : ''} 합침)</li>
+                <li>• 시트 2~N: 연도별 데이터 (면제유예비대상{educationCenterFile ? ' + 보수교육(면허신고센터)' : ''}{educationMemberFile ? ' + 보수교육(회원관리)' : ''} 합침)</li>
                 <li>• 마지막 시트: 면허신고 데이터</li>
               </ul>
               <p className="text-xs text-muted-foreground mt-2">
