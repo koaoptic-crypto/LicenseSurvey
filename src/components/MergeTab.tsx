@@ -58,8 +58,8 @@ export function MergeTab() {
   }
 
   const mergeAndDownload = async () => {
-    if (!memberFile || !exemptionFile || !licenseFile) {
-      alert('필수 파일을 업로드해주세요. (회원 데이터, 면제유예비대상 데이터, 면허신고 데이터)')
+    if (!memberFile) {
+      alert('회원 데이터 파일을 업로드해주세요.')
       return
     }
 
@@ -86,9 +86,12 @@ export function MergeTab() {
       const memberSheet = XLSX.utils.json_to_sheet(memberJsonFiltered)
       console.log('회원 데이터:', memberJsonFiltered.length, '행,', Object.keys(memberJsonFiltered[0] || {}).length, '컬럼')
 
-      // 2. 면제유예비대상 데이터의 모든 시트 읽기
-      const exemptionData = await exemptionFile.arrayBuffer()
-      const exemptionWorkbook = XLSX.read(exemptionData)
+      // 2. 면제유예비대상 데이터의 모든 시트 읽기 (선택적)
+      let exemptionWorkbook: XLSX.WorkBook | null = null
+      if (exemptionFile) {
+        const exemptionData = await exemptionFile.arrayBuffer()
+        exemptionWorkbook = XLSX.read(exemptionData)
+      }
 
       // 3. 보수교육(면허신고센터) 데이터의 모든 시트 읽기 (선택적)
       let educationCenterWorkbook: XLSX.WorkBook | null = null
@@ -107,15 +110,17 @@ export function MergeTab() {
       // 5. 연도별로 데이터 그룹화
       const yearDataMap: { [year: string]: any[] } = {}
 
-      // 면제유예비대상 데이터 추가
-      exemptionWorkbook.SheetNames.forEach((sheetName) => {
-        const sheet = exemptionWorkbook.Sheets[sheetName]
-        const jsonData = XLSX.utils.sheet_to_json(sheet)
-        if (!yearDataMap[sheetName]) {
-          yearDataMap[sheetName] = []
-        }
-        yearDataMap[sheetName].push(...jsonData)
-      })
+      // 면제유예비대상 데이터 추가 (있는 경우만)
+      if (exemptionWorkbook) {
+        exemptionWorkbook.SheetNames.forEach((sheetName) => {
+          const sheet = exemptionWorkbook!.Sheets[sheetName]
+          const jsonData = XLSX.utils.sheet_to_json(sheet)
+          if (!yearDataMap[sheetName]) {
+            yearDataMap[sheetName] = []
+          }
+          yearDataMap[sheetName].push(...jsonData)
+        })
+      }
 
       // 보수교육(면허신고센터) 데이터 추가 (있는 경우만)
       if (educationCenterWorkbook) {
@@ -141,25 +146,28 @@ export function MergeTab() {
         })
       }
 
-      // 6. 면허신고 데이터 읽기 (첫 번째 시트만)
-      const licenseData = await licenseFile.arrayBuffer()
-      const licenseWorkbook = XLSX.read(licenseData)
-      const licenseSheetOriginal = licenseWorkbook.Sheets[licenseWorkbook.SheetNames[0]]
+      // 6. 면허신고 데이터 읽기 (선택적, 첫 번째 시트만)
+      let licenseSheet: XLSX.WorkSheet | null = null
+      if (licenseFile) {
+        const licenseData = await licenseFile.arrayBuffer()
+        const licenseWorkbook = XLSX.read(licenseData)
+        const licenseSheetOriginal = licenseWorkbook.Sheets[licenseWorkbook.SheetNames[0]]
 
-      // 서식 제거 및 빈 행 필터링을 위해 JSON으로 변환 후 다시 시트 생성
-      const licenseJsonRaw = XLSX.utils.sheet_to_json(licenseSheetOriginal, {
-        raw: false,  // 셀 서식 제거
-        defval: ''   // 빈 셀은 빈 문자열로
-      }) as any[]
+        // 서식 제거 및 빈 행 필터링을 위해 JSON으로 변환 후 다시 시트 생성
+        const licenseJsonRaw = XLSX.utils.sheet_to_json(licenseSheetOriginal, {
+          raw: false,  // 셀 서식 제거
+          defval: ''   // 빈 셀은 빈 문자열로
+        }) as any[]
 
-      // 완전히 빈 행 제거
-      const licenseJsonFiltered = licenseJsonRaw.filter(row =>
-        Object.values(row).some(val => val !== null && val !== undefined && val !== '')
-      )
+        // 완전히 빈 행 제거
+        const licenseJsonFiltered = licenseJsonRaw.filter(row =>
+          Object.values(row).some(val => val !== null && val !== undefined && val !== '')
+        )
 
-      // 최적화된 시트로 재생성
-      const licenseSheet = XLSX.utils.json_to_sheet(licenseJsonFiltered)
-      console.log('면허신고 데이터:', licenseJsonFiltered.length, '행,', Object.keys(licenseJsonFiltered[0] || {}).length, '컬럼')
+        // 최적화된 시트로 재생성
+        licenseSheet = XLSX.utils.json_to_sheet(licenseJsonFiltered)
+        console.log('면허신고 데이터:', licenseJsonFiltered.length, '행,', Object.keys(licenseJsonFiltered[0] || {}).length, '컬럼')
+      }
 
       // 7. 연도별 시트 이름 정렬
       const sortedYears = Object.keys(yearDataMap).sort()
@@ -308,8 +316,10 @@ export function MergeTab() {
         XLSX.utils.book_append_sheet(mergedWorkbook, mergedSheet, year)
       })
 
-      // 12. 면허신고 데이터 시트 추가
-      XLSX.utils.book_append_sheet(mergedWorkbook, licenseSheet, '면허신고 데이터')
+      // 12. 면허신고 데이터 시트 추가 (있는 경우만)
+      if (licenseSheet) {
+        XLSX.utils.book_append_sheet(mergedWorkbook, licenseSheet, '면허신고 데이터')
+      }
 
       // 13. 파일 다운로드 (압축 옵션 적용)
       XLSX.writeFile(mergedWorkbook, '통합_데이터.xlsx', {
@@ -326,7 +336,7 @@ export function MergeTab() {
     }
   }
 
-  const allFilesUploaded = memberFile && exemptionFile && licenseFile
+  const allFilesUploaded = memberFile
 
   return (
     <div className="space-y-6">
@@ -372,7 +382,7 @@ export function MergeTab() {
             {/* 면제유예비대상 데이터 */}
             <div className="border rounded-md p-4">
               <label className="block text-sm font-medium mb-2">
-                2. 면제유예비대상 데이터
+                2. 면제유예비대상 데이터 <span className="text-muted-foreground">(선택사항)</span>
               </label>
               <input
                 type="file"
@@ -444,7 +454,7 @@ export function MergeTab() {
             {/* 면허신고 데이터 */}
             <div className="border rounded-md p-4">
               <label className="block text-sm font-medium mb-2">
-                5. 면허신고 데이터
+                5. 면허신고 데이터 <span className="text-muted-foreground">(선택사항)</span>
               </label>
               <input
                 type="file"
@@ -476,7 +486,7 @@ export function MergeTab() {
               </Button>
               {!allFilesUploaded && (
                 <p className="text-sm text-muted-foreground text-center mt-2">
-                  필수 파일을 업로드해주세요
+                  회원 데이터 파일을 업로드해주세요
                 </p>
               )}
             </div>
@@ -490,25 +500,39 @@ export function MergeTab() {
             <h3 className="text-lg font-semibold mb-4">통합 결과 미리보기</h3>
             <div className="space-y-2 text-sm">
               <p>✓ 회원 데이터: <span className="font-mono text-muted-foreground">{memberFile.name}</span></p>
-              <p>✓ 면제유예비대상 데이터: <span className="font-mono text-muted-foreground">{exemptionFile.name}</span></p>
+              {exemptionFile && (
+                <p>✓ 면제유예비대상 데이터: <span className="font-mono text-muted-foreground">{exemptionFile.name}</span></p>
+              )}
               {educationCenterFile && (
                 <p>✓ 보수교육(면허신고센터) 데이터: <span className="font-mono text-muted-foreground">{educationCenterFile.name}</span></p>
               )}
               {educationMemberFile && (
                 <p>✓ 보수교육(회원관리) 데이터: <span className="font-mono text-muted-foreground">{educationMemberFile.name}</span></p>
               )}
-              <p>✓ 면허신고 데이터: <span className="font-mono text-muted-foreground">{licenseFile.name}</span></p>
+              {licenseFile && (
+                <p>✓ 면허신고 데이터: <span className="font-mono text-muted-foreground">{licenseFile.name}</span></p>
+              )}
             </div>
             <div className="mt-4 p-4 bg-muted rounded-md">
               <p className="text-sm font-semibold mb-2">통합 파일 구조:</p>
               <ul className="text-sm space-y-1 ml-4">
                 <li>• 시트 1: 회원 데이터</li>
-                <li>• 시트 2~N: 연도별 데이터 (면제유예비대상{educationCenterFile ? ' + 보수교육(면허신고센터)' : ''}{educationMemberFile ? ' + 보수교육(회원관리)' : ''} 합침)</li>
-                <li>• 마지막 시트: 면허신고 데이터</li>
+                {(exemptionFile || educationCenterFile || educationMemberFile) && (
+                  <li>• 시트 2~N: 연도별 데이터 ({[
+                    exemptionFile && '면제유예비대상',
+                    educationCenterFile && '보수교육(면허신고센터)',
+                    educationMemberFile && '보수교육(회원관리)'
+                  ].filter(Boolean).join(' + ')} 합침)</li>
+                )}
+                {licenseFile && (
+                  <li>• 마지막 시트: 면허신고 데이터</li>
+                )}
               </ul>
-              <p className="text-xs text-muted-foreground mt-2">
-                * 같은 연도의 시트들이 자동으로 통합됩니다.
-              </p>
+              {(exemptionFile || educationCenterFile || educationMemberFile) && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  * 같은 연도의 시트들이 자동으로 통합됩니다.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
