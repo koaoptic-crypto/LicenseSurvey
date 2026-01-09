@@ -21,7 +21,89 @@ export function MergeTab() {
     }
   }
 
-  // 면허취득일에서 연도 추출 함수
+  // HTML 형식 Excel 파일을 포함한 다양한 형식 지원 함수
+  const readExcelFile = async (file: File): Promise<XLSX.WorkBook> => {
+    const arrayBuffer = await file.arrayBuffer()
+
+    // 파일이 HTML 형식인지 확인
+    const checkIfHtml = (buffer: ArrayBuffer): boolean => {
+      const uint8Array = new Uint8Array(buffer)
+      const first100Bytes = uint8Array.slice(0, 100)
+      const text = new TextDecoder('utf-8').decode(first100Bytes).toLowerCase()
+      return text.includes('<html') || text.includes('<!doctype')
+    }
+
+    const isHtmlFormat = checkIfHtml(arrayBuffer)
+
+    if (isHtmlFormat) {
+      console.log('HTML 형식 Excel 파일 감지됨, 직접 파싱 시도...')
+
+      // EUC-KR로 디코딩
+      let htmlText: string
+      try {
+        const decoder = new TextDecoder('euc-kr')
+        htmlText = decoder.decode(arrayBuffer)
+      } catch {
+        // EUC-KR 실패 시 UTF-8 시도
+        const decoder = new TextDecoder('utf-8')
+        htmlText = decoder.decode(arrayBuffer)
+      }
+
+      // DOMParser로 HTML 파싱
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(htmlText, 'text/html')
+      const tables = doc.querySelectorAll('table')
+
+      if (tables.length === 0) {
+        throw new Error('HTML에서 테이블을 찾을 수 없습니다.')
+      }
+
+      // 첫 번째 테이블 사용
+      const table = tables[0]
+      const rows = table.querySelectorAll('tr')
+      const data: any[][] = []
+
+      rows.forEach((row) => {
+        const cells = row.querySelectorAll('td, th')
+        const rowData: any[] = []
+        cells.forEach((cell) => {
+          const text = cell.textContent?.trim() || ''
+          // x:num 속성이 있으면 숫자로 변환
+          const isNum = cell.getAttribute('x:num')
+          rowData.push(isNum ? parseFloat(text) || text : text)
+        })
+        if (rowData.length > 0) {
+          data.push(rowData)
+        }
+      })
+
+      // 데이터를 워크시트로 변환
+      const ws = XLSX.utils.aoa_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+
+      console.log('HTML 파싱 완료:', data.length, '행')
+      return wb
+    }
+
+    // 일반 Excel 파일 처리
+    try {
+      return XLSX.read(arrayBuffer, { type: 'array' })
+    } catch (error) {
+      console.log('일반 방법 실패, 인코딩 변환 시도...')
+      try {
+        const decoder = new TextDecoder('euc-kr')
+        const text = decoder.decode(arrayBuffer)
+        return XLSX.read(text, { type: 'string', codepage: 949 })
+      } catch (encError) {
+        console.log('EUC-KR 실패, UTF-8로 재시도...')
+        const decoder = new TextDecoder('utf-8')
+        const text = decoder.decode(arrayBuffer)
+        return XLSX.read(text, { type: 'string' })
+      }
+    }
+  }
+
   const extractYear = (dateString: string | undefined): string => {
     if (!dateString) return ''
 
@@ -66,9 +148,8 @@ export function MergeTab() {
     setIsProcessing(true)
 
     try {
-      // 1. 회원 데이터 읽기 (첫 번째 시트만)
-      const memberData = await memberFile.arrayBuffer()
-      const memberWorkbook = XLSX.read(memberData)
+      // 1. 회원 데이터 읽기 (첫 번째 시트만) - HTML 형식 Excel 파일 지원
+      const memberWorkbook = await readExcelFile(memberFile)
       const memberSheetOriginal = memberWorkbook.Sheets[memberWorkbook.SheetNames[0]]
 
       // 서식 제거 및 빈 행 필터링을 위해 JSON으로 변환 후 다시 시트 생성
@@ -89,22 +170,19 @@ export function MergeTab() {
       // 2. 면제유예비대상 데이터의 모든 시트 읽기 (선택적)
       let exemptionWorkbook: XLSX.WorkBook | null = null
       if (exemptionFile) {
-        const exemptionData = await exemptionFile.arrayBuffer()
-        exemptionWorkbook = XLSX.read(exemptionData)
+        exemptionWorkbook = await readExcelFile(exemptionFile)
       }
 
       // 3. 보수교육(면허신고센터) 데이터의 모든 시트 읽기 (선택적)
       let educationCenterWorkbook: XLSX.WorkBook | null = null
       if (educationCenterFile) {
-        const educationCenterData = await educationCenterFile.arrayBuffer()
-        educationCenterWorkbook = XLSX.read(educationCenterData)
+        educationCenterWorkbook = await readExcelFile(educationCenterFile)
       }
 
       // 4. 보수교육(회원관리) 데이터의 모든 시트 읽기 (선택적)
       let educationMemberWorkbook: XLSX.WorkBook | null = null
       if (educationMemberFile) {
-        const educationMemberData = await educationMemberFile.arrayBuffer()
-        educationMemberWorkbook = XLSX.read(educationMemberData)
+        educationMemberWorkbook = await readExcelFile(educationMemberFile)
       }
 
       // 5. 연도별로 데이터 그룹화
@@ -149,8 +227,7 @@ export function MergeTab() {
       // 6. 면허신고 데이터 읽기 (선택적, 첫 번째 시트만)
       let licenseSheet: XLSX.WorkSheet | null = null
       if (licenseFile) {
-        const licenseData = await licenseFile.arrayBuffer()
-        const licenseWorkbook = XLSX.read(licenseData)
+        const licenseWorkbook = await readExcelFile(licenseFile)
         const licenseSheetOriginal = licenseWorkbook.Sheets[licenseWorkbook.SheetNames[0]]
 
         // 서식 제거 및 빈 행 필터링을 위해 JSON으로 변환 후 다시 시트 생성
@@ -348,8 +425,9 @@ export function MergeTab() {
             <div className="flex items-start gap-2">
               <span className="text-blue-600 dark:text-blue-400 font-bold">ℹ️</span>
               <div className="text-sm text-blue-800 dark:text-blue-200">
-                <p className="font-semibold mb-1">중요 안내사항</p>
-                <p>다운로드 받은 <strong>회원 데이터 파일</strong>을 "다른 이름으로 저장"을 눌러 파일 형식을 <strong>"Excel 통합 문서(.xlsx)"</strong>로 저장한 후 업로드해주세요.</p>
+                <p className="font-semibold mb-1">파일 형식 안내</p>
+                <p><strong>.xlsx</strong>, <strong>.xls</strong> (HTML 형식 포함) 파일을 모두 지원합니다.</p>
+                <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">웹사이트에서 다운로드한 Excel 파일을 별도 변환 없이 바로 업로드하실 수 있습니다.</p>
               </div>
             </div>
           </div>
